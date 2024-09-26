@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1",
+  "results": [
+    {
+      "id": "call-0101",
+      "tool": "catalog.search",
+      "status": "succeeded",
+      "sections": [
+        { "name": "query-id", "kind": "identifier", "priority": 0, "text": "qry_5512AB", "sourceHash": "sha256:0011223344556677", "pointer": "results/call-0101/ids.json" },
+        { "name": "hits", "kind": "evidence", "priority": 3, "text": "14 results, top score 0.91", "sourceHash": "sha256:8899aabbccddeeff", "pointer": "results/call-0101/hits.json" }
+      ]
+    },
+    {
+      "id": "call-0102",
+      "tool": "catalog.fetch",
+      "status": "succeeded",
+      "sections": [
+        { "name": "item-id", "kind": "identifier", "priority": 0, "text": "itm_77120", "sourceHash": "sha256:aabbccddeeff0011", "pointer": "results/call-0102/ids.json" },
+        { "name": "body", "kind": "evidence", "priority": 4, "text": "title: Braided cable, 2m; stock: 412; warehouse: eu-west-1", "sourceHash": "sha256:1122334455667788", "pointer": "results/call-0102/body.json" }
+      ]
+    }
+  ]
+}

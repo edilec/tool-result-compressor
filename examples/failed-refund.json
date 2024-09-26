@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "1",
+  "results": [
+    {
+      "id": "call-0007",
+      "tool": "payments.refund",
+      "status": "failed",
+      "sections": [
+        {
+          "name": "error",
+          "kind": "failure",
+          "priority": 0,
+          "text": "Refund declined: acquirer code 51 (insufficient funds in the source account).",
+          "sourceHash": "sha256:9f2c1a4b7e0d3c5a",
+          "pointer": "results/call-0007/error.txt"
+        },
+        {
+          "name": "order",
+          "kind": "identifier",
+          "priority": 0,
+          "text": "ord_9F2KQ4",
+          "sourceHash": "sha256:11aa22bb33cc44dd",
+          "pointer": "results/call-0007/ids.json"
+        },
+        {
+          "name": "retry",
+          "kind": "next-action",
+          "priority": 0,
+          "text": "Fund the source account, then retry with the same idempotency key.",
+          "pointer": "results/call-0007/next.md"
+        },
+        {
+          "name": "transcript",
+          "kind": "evidence",
+          "priority": 5,
+          "text": "REQUEST POST /v2/refunds payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field payload field ",
+          "sourceHash": "sha256:deadbeefdeadbeef",
+          "pointer": "results/call-0007/transcript.log"
+        },
+        {
+          "name": "merchant",
+          "kind": "context",
+          "priority": 2,
+          "text": "merchant acme-eu, region eu-west-1",
+          "sourceHash": "sha256:0123456789abcdef",
+          "pointer": "results/call-0007/context.json"
+        }
+      ]
+    },
+    {
+      "id": "call-0008",
+      "tool": "ledger.post",
+      "status": "succeeded",
+      "sections": [
+        {
+          "name": "entry",
+          "kind": "identifier",
+          "priority": 0,
+          "text": "led_44812",
+          "sourceHash": "sha256:abcdef0123456789",
+          "pointer": "results/call-0008/ids.json"
+        },
+        {
+          "name": "response",
+          "kind": "evidence",
+          "priority": 3,
+          "text": "HTTP 201 ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ",
+          "sourceHash": "sha256:5566778899aabbcc",
+          "pointer": "results/call-0008/response.json"
+        }
+      ]
+    }
+  ]
+}

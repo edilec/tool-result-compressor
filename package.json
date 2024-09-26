@@ -1,17 +1,53 @@
 {
   "name": "tool-result-compressor",
-  "version": "0.0.0",
-  "description": "Compress tool results while preserving decisions, evidence and required identifiers.",
+  "version": "0.1.0",
+  "description": "Compress saved tool results into a budgeted summary that keeps every outcome, failure reason, identifier and next action, lists everything it omits, and never turns an unknown outcome into a success.",
   "type": "module",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test"
+    "lint": "node --check bin/tool-result-compressor.mjs && node --check src/compress.mjs && node --check src/destination.mjs && node --check src/index.mjs && node --check src/results.mjs && node --check src/text.mjs && node --check test/acceptance.test.mjs && node --check test/cli.test.mjs && node --check test/compress.test.mjs && node --check test/destination.test.mjs && node --check test/determinism.test.mjs && node --check test/helpers.mjs && node --check test/incomplete.test.mjs && node --check test/limits.test.mjs && node --check test/ordering.test.mjs && node --check test/parse-failure.test.mjs && node --check test/rule-catalog.test.mjs && node --check test/sanitisation.test.mjs && node --check test/schema.test.mjs && node --check test/severity-outcomes.test.mjs",
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=src/**",
+    "example": "node bin/tool-result-compressor.mjs --results examples/clean-run.json --budget-chars 800",
+    "example:failing": "node bin/tool-result-compressor.mjs --results examples/failed-refund.json --budget-chars 900; test $? -eq 1",
+    "pack:check": "npm pack --dry-run",
+    "check": "npm run lint && npm test && npm run example && npm run example:failing && npm run pack:check"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/edilec/tool-result-compressor"
-  }
+    "url": "git+https://github.com/edilec/tool-result-compressor.git"
+  },
+  "bin": {
+    "tool-result-compressor": "./bin/tool-result-compressor.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "examples",
+    "docs",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "tool-results",
+    "compression",
+    "agent",
+    "context-window",
+    "summary",
+    "evidence",
+    "provenance",
+    "cli"
+  ],
+  "author": "Edilec Private Limited",
+  "bugs": {
+    "url": "https://github.com/edilec/tool-result-compressor/issues"
+  },
+  "homepage": "https://github.com/edilec/tool-result-compressor#readme"
 }
