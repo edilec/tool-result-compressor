@@ -100,6 +100,18 @@ test('1c. when the required material cannot fit, no summary is produced rather t
   assert.equal(finding.severity, 'error')
   assert.match(finding.message, /needs \d+ characters; the budget is 80/)
   assert.match(finding.suggestion, /Raise --budget-chars to at least \d+/)
+
+  // And the advice works when it is followed. The budget is rendered into the
+  // summary, so the arrangement's length depends on the digit count of the
+  // number being named: a refusal measured against the budget it just refused
+  // names a number that is refused again.
+  const needed = Number(/needs (\d+) characters/.exec(finding.message)[1])
+  const raised = runReport(root, ['--budget-chars', String(needed)])
+  assert.notEqual(raised.report.compressed, null, `the run at ${needed} was refused again`)
+  assert.ok(raised.report.summary.usedChars <= needed)
+  // One character less is still refused, so the number is the smallest that
+  // works rather than a comfortable over-estimate.
+  assert.equal(runReport(root, ['--budget-chars', String(needed - 1)]).report.compressed, null)
 })
 
 test('2. every omitted section is listed in the summary with its hash and pointer', async (t) => {

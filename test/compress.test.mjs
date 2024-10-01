@@ -206,3 +206,32 @@ test('selection stops when the injected clock says to, and offers nothing', () =
   assert.deepEqual(selected, { ok: false, expired: true })
   assert.equal(selected.compressed, undefined, 'a partly selected summary must not be offered')
 })
+
+test('the budget a refusal names is one the arrangement actually fits in', () => {
+  // The budget is rendered into the summary, so the length of the required
+  // arrangement depends on the digit count of the number being asked for.
+  // Measuring it against the budget that was just refused names a number that
+  // is refused too -- advice that fails when it is followed.
+  const one = result('r0', 'failed', [])
+  const usable = usableFrom(one, [
+    { name: 'why', kind: 'failure', text: 'declined' },
+    { name: 'oid', kind: 'identifier', text: 'ord_1' },
+    { name: 'do', kind: 'next-action', text: 'retry once' },
+    { name: 'log', kind: 'evidence', text: filler(300), priority: 1, retrieval: 'runs/1/log.txt' },
+  ])
+
+  for (const budget of [1, 8, 20, 99, 150, 193]) {
+    const refused = compress([one], usable, budget)
+    if (refused.ok) continue
+    const needed = refused.requiredChars
+
+    // Sufficient: the number it names produces a summary.
+    const atNeeded = compress([one], usable, needed)
+    assert.equal(atNeeded.ok, true, `budget ${budget} named ${needed}, which is still refused`)
+    assert.ok(atNeeded.compressed.text.length <= needed)
+
+    // Minimal: one character less is still refused, so the advice is not merely
+    // safe -- a guard that named a huge number would pass the check above.
+    assert.equal(compress([one], usable, needed - 1).ok, false, `${needed - 1} should not be enough`)
+  }
+})

@@ -200,6 +200,32 @@ export function assertSummaryInvariants(compressed, results, usable, retained, t
 }
 
 /**
+ * The smallest budget an arrangement actually fits in.
+ *
+ * The budget is rendered INTO the summary -- `| budget 193 chars` -- so the
+ * length of an arrangement depends on the digit count of the number being asked
+ * for. Measuring it against the budget that was just refused therefore names a
+ * number that is itself refused: a 191-character arrangement measured against a
+ * two-digit budget reports 193, and a run at 193 reports 194. "Raise
+ * --budget-chars to at least N" has to be advice that works when it is
+ * followed.
+ *
+ * `measure` is non-decreasing in the budget and grows only by a digit at a
+ * time, so iterating from below reaches the least budget that fits in two or
+ * three steps; the cap is there so a future rendering that somehow never
+ * settles cannot spin.
+ */
+function smallestSufficientBudget(measure, start) {
+  let budget = start
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const length = measure(budget)
+    if (length <= budget) return budget
+    budget = length
+  }
+  return budget
+}
+
+/**
  * Select what fits, render it, and check the result.
  *
  * Two passes, because the omitted list is inside the budget and therefore
@@ -230,7 +256,7 @@ export function assertSummaryInvariants(compressed, results, usable, retained, t
 export function compress(results, usable, budgetChars, shouldStop = () => false) {
   const optional = usable.filter((entry) => !isRequiredKind(entry.section.kind)).sort(compareOptional)
   const retained = new Set(usable.filter((entry) => isRequiredKind(entry.section.kind)).map((entry) => entry.key))
-  const lengthOf = (set) => renderSummary(assemble(results, usable, set, budgetChars)).length
+  const lengthOf = (set, budget = budgetChars) => renderSummary(assemble(results, usable, set, budget)).length
 
   let current = lengthOf(retained)
 
@@ -248,7 +274,13 @@ export function compress(results, usable, budgetChars, shouldStop = () => false)
     const everything = new Set(usable.map((entry) => entry.key))
     const everythingLength = lengthOf(everything)
     if (everythingLength > budgetChars) {
-      return { ok: false, requiredChars: Math.min(current, everythingLength) }
+      return {
+        ok: false,
+        requiredChars: Math.min(
+          smallestSufficientBudget((budget) => lengthOf(retained, budget), current),
+          smallestSufficientBudget((budget) => lengthOf(everything, budget), everythingLength),
+        ),
+      }
     }
     retained.clear()
     for (const key of everything) retained.add(key)
