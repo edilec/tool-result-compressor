@@ -404,11 +404,30 @@ export async function compressToolResults(options = {}) {
         return report('incomplete', findings, blank)
       }
 
+      /**
+       * The guard above tests the text as it was saved; this one tests the text
+       * as it will be READ. Whitespace collapses and control characters are
+       * stripped on the way to the summary, so a section whose text is a
+       * non-breaking run of them is not a short section -- it is an empty one,
+       * and it used to be rendered as "failure why: " with nothing after it
+       * while the report said nothing at all about the reason being absent.
+       */
+      const rendered = sanitize(section.text, limits.maxSectionChars)
+      if (rendered.length === 0) {
+        add('section-text-missing', {
+          file: where,
+          pointer: section.pointer,
+          message: `section "${sectionLabel}" of result "${label}" carries nothing but whitespace or control characters, so none of its content survives into a summary`,
+          suggestion: 'Save the section text, or remove the section from the document.',
+        })
+        continue
+      }
+
       usable.push({
         key: sectionKey(result, section),
         result,
         section: { ...section, retrieval, sourceHash },
-        text: sanitize(section.text, limits.maxSectionChars),
+        text: rendered,
         retrievable: retrieval !== undefined || sourceHash !== undefined,
       })
     }

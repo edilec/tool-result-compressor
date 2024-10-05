@@ -62,6 +62,42 @@ test('a section whose text was never saved is incomplete, not an empty section',
   assert.equal(report.compressed.text.includes('stdout'), false)
 })
 
+test('a required section that renders to nothing is a missing reason, not an empty one', async (t) => {
+  // The guard that catches an absent text tests the text as it was SAVED. What
+  // reaches the summary is the text as it will be READ: whitespace collapses
+  // and control characters are stripped. A failure reason made only of those
+  // used to render as "failure why: " with nothing after it, status fail, exit
+  // 1, and no finding anywhere saying the reason had never been obtained.
+  const controls = `${String.fromCharCode(0x85)}${String.fromCharCode(0x202e)}${String.fromCharCode(0x200e)}`
+  const root = await makeTree({
+    'results.json': resultsDocument([
+      {
+        id: 'c1',
+        tool: 't',
+        status: 'failed',
+        sections: [
+          section('why', 'failure', controls),
+          section('oid', 'identifier', '   '),
+          section('do', 'next-action', 'retry'),
+        ],
+      },
+    ]),
+  })
+  t.after(() => cleanup(root))
+
+  const { report, status } = runReport(root)
+  assert.equal(report.status, 'incomplete')
+  assert.equal(status, 2)
+  const missing = findingsFor(report, 'section-text-missing')
+  assert.equal(missing.length, 2, 'the failure reason and the identifier are both empty')
+  for (const finding of missing) assert.match(finding.message, /nothing but whitespace or control characters/)
+
+  // And neither is rendered as a section that is present but says nothing.
+  assert.equal(report.compressed.text.includes('failure why:'), false)
+  assert.equal(report.compressed.text.includes('identifier oid:'), false)
+  assert.ok(report.compressed.text.includes('next-action do: retry'))
+})
+
 test('a missing failure reason says the reason was never saved, not that none was supplied', async (t) => {
   const root = await makeTree({
     'results.json': resultsDocument([

@@ -166,7 +166,7 @@ required-only one.
 | `results-unreadable` | error | the results document could not be opened or read |
 | `retrieval-pointer-invalid` | error | a pointer is absolute, or climbs out of the artifact store; it is discarded rather than repeated |
 | `section-omitted` | info | an optional section did not fit and is listed with its pointer |
-| `section-text-missing` | error | a section carries no text, so its content was never obtained |
+| `section-text-missing` | error | a section carries no text, or none that survives rendering, so its content was never obtained |
 | `source-hash-malformed` | warning | a source hash is not `algorithm:hex`; it is discarded rather than repeated |
 | `time-budget-exceeded` | error | the time budget expired before selection finished |
 
