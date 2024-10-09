@@ -158,6 +158,29 @@ test('the invariant check refuses a summary that is over its own budget', () => 
   )
 })
 
+test('the invariant check refuses a summary that omitted a section without listing it', () => {
+  // The footer is what makes an omission honest: a summary that silently drops
+  // material teaches its reader that what it shows is everything there was.
+  // This is the branch that says so, and it was the one branch of the three
+  // that nothing failed on when it was disabled.
+  const one = result('r', 'succeeded', [])
+  const usable = usableFrom(one, [
+    { name: 'id', kind: 'identifier', text: 'abc' },
+    { name: 'log', kind: 'evidence', text: filler(50), priority: 1, retrieval: 'runs/1/log.txt' },
+  ])
+  const retained = new Set([usable[0].key])
+  const compressed = assemble([one], usable, retained, 10000)
+  assert.equal(compressed.omitted.length, 1, 'the honest summary lists it')
+
+  const silent = { ...compressed, omitted: [] }
+  assert.throws(
+    () => assertSummaryInvariants(silent, [one], usable, retained, renderSummary(silent)),
+    /section "r\/log" was neither retained nor listed as omitted/,
+  )
+  // The honest one passes, so the check is not simply refusing everything.
+  assertSummaryInvariants(compressed, [one], usable, retained, renderSummary(compressed))
+})
+
 test('the invariant check refuses a summary that reports success for a result that did not succeed', () => {
   const one = result('r', 'unknown', [])
   const usable = usableFrom(one, [{ name: 'id', kind: 'identifier', text: 'abc' }])
