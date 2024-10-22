@@ -188,8 +188,13 @@ the source — not by a test that reads a declaration and agrees with it.
    rather than emitting one that fails it.
 2. **A failure reason, an identifier and a next action always survive.** They are
    never dropped to make room. If they and the omitted list do not fit, **no
-   summary is produced**, the report says how many characters it would need, and
-   the run exits 1.
+   summary is produced**, the report names the smallest budget that arrangement
+   actually fits in, and the run exits 1. Smallest, and sufficient: the budget is
+   rendered into the summary, so the number depends on its own digit count, and a
+   refusal measured against the budget it just refused names a budget that is
+   refused again. A section whose text is present but renders to nothing —
+   whitespace, control characters — is reported as missing rather than rendered
+   as a section that says nothing.
 3. **Nothing is omitted silently.** Every omitted section is listed inside the
    rendered summary with its kind, its size, its source hash and its retrieval
    pointer, and an omission that carries neither is an error.

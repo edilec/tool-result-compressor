@@ -89,7 +89,10 @@ correct selection of losing a section.
 
 No tokenizer, no paraphrasing, no retrieval. Every character emitted from a
 section came from that section, with whitespace collapsed and control characters
-stripped. A retrieval pointer is recorded and never followed — retrieving the
+stripped — and a section left with nothing after that is reported as missing,
+not rendered as a section that is present and says nothing. The guard that
+catches an absent text has to test the text as it will be READ, because that is
+what the reader gets. A retrieval pointer is recorded and never followed — retrieving the
 full text is the caller's round trip, and it is one they can choose not to make.
 
 Control stripping matters more here than in a tool whose output is a table. The
