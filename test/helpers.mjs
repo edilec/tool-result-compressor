@@ -80,5 +80,23 @@ export function fakeClock(start, jump) {
   }
 }
 
+/**
+ * A clock that stays inside the budget for `readings` calls and then jumps past
+ * it.
+ *
+ * The run reads the clock in three places -- once to start the budget, once per
+ * saved result while they are inspected, and once more before selection begins
+ * -- so a test that means to expire inside a particular phase has to let the
+ * earlier ones finish. `fakeClock` expires at the first reading after the
+ * start, which is now the inspection of the first result.
+ */
+export function clockExpiringAfter(start, readings, jump) {
+  let calls = 0
+  return () => {
+    calls += 1
+    return calls <= readings ? start : start + jump
+  }
+}
+
 /** Filler text of an exact length, so a budget can be aimed at a known edge. */
 export const filler = (length) => 'x'.repeat(length)

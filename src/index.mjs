@@ -308,7 +308,33 @@ export async function compressToolResults(options = {}) {
   const seenIds = new Set()
   let sectionCount = 0
 
+  /**
+   * The budget bounds the whole run, not only selection.
+   *
+   * `compress` is handed the clock and stops mid-loop, which covers the phase
+   * that costs the most -- but every reading of that clock happens inside a
+   * loop over the OPTIONAL sections. A document whose sections are all of
+   * required kinds leaves that list empty, so neither loop runs, the callback
+   * is never called, and a run given no time at all reached the end reporting
+   * `pass` with exit 0 and not one finding. An expired budget is not a verdict.
+   *
+   * Inspecting the saved results is work the budget is documented to bound as
+   * well -- the help text says "the whole run" -- so the clock is read once per
+   * result and once more before selection begins.
+   */
+  const outOfTime = (during) => {
+    add('time-budget-exceeded', {
+      file: documentName,
+      message: `the ${limits.timeoutMs}ms time budget expired ${during}, so no arrangement was selected and nothing is offered as a summary`,
+      suggestion: 'Raise --timeout-ms deliberately. A run that ran out of time has not established what fits.',
+    })
+    return report('incomplete', findings, {
+      ...blank, checked: results.length, results: results.length, sections: sectionCount,
+    })
+  }
+
   for (const result of results) {
+    if (expired()) return outOfTime('while the saved results were being inspected')
     const label = sanitize(result.id, 80)
     if (seenIds.has(result.id)) {
       add('duplicate-result-id', {
@@ -459,6 +485,8 @@ export async function compressToolResults(options = {}) {
    * arrangement that fits, it is the arrangement selection had reached, and
    * nothing in the output would say so.
    */
+  if (expired()) return outOfTime('before selection began')
+
   const selected = compress(results, usable, budgetChars, expired)
 
   if (selected.expired === true) {

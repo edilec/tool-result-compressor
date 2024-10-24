@@ -15,7 +15,8 @@ import test from 'node:test'
 
 import { compressToolResults } from '../src/index.mjs'
 import {
-  cleanup, fakeClock, filler, findingFor, findingsFor, makeTree, resultsDocument, runReport, section,
+  cleanup, clockExpiringAfter, fakeClock, filler, findingFor, findingsFor, makeTree, resultsDocument,
+  runReport, section,
 } from './helpers.mjs'
 
 test('an unknown outcome makes the run incomplete however many other results succeeded', async (t) => {
@@ -128,13 +129,16 @@ test('an expired clock stops selection and offers no summary at all', async (t) 
   })
   t.after(() => cleanup(root))
 
-  // The clock is injected, never read: the first call starts the budget and
-  // every later call reports that ten seconds have already gone by.
+  // The clock is injected, never read. Three readings carry the run as far as
+  // selection -- the one that starts the budget, one for the single result
+  // being inspected, and one immediately before selection -- and the fourth,
+  // inside selection, reports that ten seconds have already gone by. Expiring
+  // any earlier would exercise a different phase than this test is named for.
   const expired = await compressToolResults({
     results: join(root, 'results.json'),
     budgetChars: 4000,
     limits: { timeoutMs: 5000 },
-    now: fakeClock(1_000_000, 10_000),
+    now: clockExpiringAfter(1_000_000, 3, 10_000),
   })
   assert.equal(expired.status, 'incomplete')
   assert.equal(expired.compressed, null, 'the arrangement selection had reached must not be offered')
@@ -149,6 +153,97 @@ test('an expired clock stops selection and offers no summary at all', async (t) 
   })
   assert.equal(finished.status, 'pass')
   assert.notEqual(finished.compressed, null)
+})
+
+/**
+ * The phase the clock used to be blind to.
+ *
+ * Every reading of the selection callback happens inside a loop over the
+ * OPTIONAL sections. A document whose sections are all of required kinds --
+ * a failure reason, an identifier, a next action, which is exactly what a
+ * minimal saved result carries -- leaves that list empty, so neither loop runs
+ * and the callback is never called. A run given no time at all reached the end
+ * of that document reporting `pass`, exit 0 and not one finding: the budget
+ * expired and the verdict was green.
+ */
+const REQUIRED_ONLY = [
+  { id: 'a', tool: 't', status: 'succeeded', sections: [section('oid', 'identifier', 'ord_1')] },
+]
+
+test('an expired budget is not a pass, even with nothing optional to select', async (t) => {
+  const root = await makeTree({ 'results.json': resultsDocument(REQUIRED_ONLY) })
+  t.after(() => cleanup(root))
+
+  const expired = runReport(root, ['--timeout-ms', '0'])
+  assert.equal(expired.report.status, 'incomplete')
+  assert.equal(expired.status, 2)
+  assert.equal(expired.report.compressed, null, 'a run that had no time never established what fits')
+  assert.match(findingFor(expired.report, 'time-budget-exceeded').message, /0ms time budget expired/)
+
+  // Not a guard that refuses everything: the same document with a real budget
+  // is compressed and passes.
+  const finished = runReport(root)
+  assert.equal(finished.report.status, 'pass')
+  assert.equal(finished.status, 0)
+  assert.deepEqual(finished.report.findings, [])
+  assert.match(finished.report.compressed.text, /identifier oid: ord_1/)
+})
+
+test('the time budget stops the inspection of saved results, not only selection', async (t) => {
+  const root = await makeTree({
+    'results.json': resultsDocument(
+      ['a', 'b', 'c', 'd'].map((id) => (
+        { id, tool: 't', status: 'succeeded', sections: [section('oid', 'identifier', id)] }
+      )),
+    ),
+  })
+  t.after(() => cleanup(root))
+
+  // A millisecond per reading: the first starts the budget, then one reading
+  // per result. With three milliseconds the third result is where it runs out.
+  let calls = 0
+  const stepping = () => { calls += 1; return calls - 1 }
+  const report = await compressToolResults({
+    results: join(root, 'results.json'), budgetChars: 4000, limits: { timeoutMs: 3 }, now: stepping,
+  })
+
+  assert.equal(report.status, 'incomplete')
+  assert.equal(report.compressed, null)
+  assert.match(findingFor(report, 'time-budget-exceeded').message, /while the saved results were being inspected/)
+  /**
+   * Stopped where the budget ran out, not after inspecting all four: the phase
+   * is bounded rather than merely checked once it is over. Without the reading
+   * inside this loop the run inspects every result and reports four.
+   */
+  assert.equal(report.summary.sections, 2)
+  assert.equal(report.summary.results, 4)
+})
+
+test('the budget is read once more before selection begins', async (t) => {
+  const root = await makeTree({
+    'results.json': resultsDocument(
+      ['a', 'b'].map((id) => (
+        { id, tool: 't', status: 'succeeded', sections: [section('oid', 'identifier', id)] }
+      )),
+    ),
+  })
+  t.after(() => cleanup(root))
+
+  // Three readings inside the budget -- the start and one per result -- and the
+  // fourth, immediately before selection, past it. Selection itself reads the
+  // clock only while it has optional sections to weigh, and this document has
+  // none, so nothing later would ever notice.
+  const report = await compressToolResults({
+    results: join(root, 'results.json'),
+    budgetChars: 4000,
+    limits: { timeoutMs: 5000 },
+    now: clockExpiringAfter(1_000_000, 3, 10_000),
+  })
+
+  assert.equal(report.status, 'incomplete')
+  assert.equal(report.compressed, null)
+  assert.match(findingFor(report, 'time-budget-exceeded').message, /before selection began/)
+  assert.equal(report.summary.sections, 2, 'every result was inspected before the budget ran out')
 })
 
 test('an unreadable document says so, and does not report "no results were declared"', async (t) => {
