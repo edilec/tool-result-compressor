@@ -168,7 +168,7 @@ required-only one.
 | `section-omitted` | info | an optional section did not fit and is listed with its pointer |
 | `section-text-missing` | error | a section carries no text, or none that survives rendering, so its content was never obtained |
 | `source-hash-malformed` | warning | a source hash is not `algorithm:hex`; it is discarded rather than repeated |
-| `time-budget-exceeded` | error | the time budget expired before selection finished |
+| `time-budget-exceeded` | error | the time budget expired while the results were inspected, before selection began, or during selection |
 
 Nine of these mean the run did not obtain the evidence it needed, and force
 `status: "incomplete"` and exit 2 rather than exit 1: `failure-reason-missing`,

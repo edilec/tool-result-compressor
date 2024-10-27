@@ -63,6 +63,21 @@ summary is what tells the caller *which* call is unknown, so withholding it
 would be unhelpful; the exit code is what stops the loop treating the run as a
 pass.
 
+## The time budget bounds the whole run
+
+`--timeout-ms` is documented as the budget for the whole run, so the clock is
+read in every phase that can spend it: once per saved result while they are
+inspected, once immediately before selection begins, and inside selection for
+each optional section it weighs.
+
+The middle one is not redundant. Every reading inside selection sits in a loop
+over the *optional* sections, so a document whose sections are all of required
+kinds — a failure reason, an identifier, a next action — leaves that list empty,
+neither loop runs and the callback is never called. Such a document reported
+`pass` and exit 0 on a budget of zero milliseconds: the budget had expired and
+the verdict was green. An expired budget is not a verdict, and a phase that
+reads no clock is a phase the budget does not bound.
+
 ## The invariants are in the shipped code, not only in the tests
 
 `assertSummaryInvariants` runs on every summary before it is emitted and throws

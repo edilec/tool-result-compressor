@@ -18,6 +18,14 @@ test that fails when the fix is removed.
   summary is the sanitised text. A failure reason made only of whitespace or
   control characters was rendered as `failure why: ` with nothing after it, at
   exit 1, with nothing in the report saying the reason had never been obtained.
+- **An expired time budget is never a pass.** `--timeout-ms` is documented as
+  the budget for the whole run, but the clock was read only inside selection --
+  and every reading there sits in a loop over the *optional* sections. A
+  document whose sections are all of required kinds leaves that list empty, so
+  neither loop runs, the callback is never called, and `--timeout-ms 0` reported
+  `status: "pass"` with exit 0 and no findings at all. The clock is now read once
+  per saved result while they are inspected and once more before selection
+  begins, so the phase that ran out of time is the phase the finding names.
 - **A value that cannot be stringified is described, not thrown on.**
   `String({toString: {}})` throws; `sanitize` now renders such a value as its
   shape (`[object]`, `[array]`) and never reproduces it.
