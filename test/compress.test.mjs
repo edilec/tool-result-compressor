@@ -85,13 +85,59 @@ test('the free-retention pass keeps a section that is cheaper to show than to li
 })
 
 test('optional sections are offered in priority order, unretrievable first', () => {
+  /**
+   * One pair per documented tie-breaker, each built so that every LATER key
+   * would order the pair the other way round.
+   *
+   * A fixture whose keys all agree cannot fail when one of them is deleted.
+   * This test used to be three entries whose names happened to sort into the
+   * same order as their priorities, so deleting the priority comparison, the
+   * retrievable comparison, the result id or the section name each left it
+   * green -- while the order decides which optional sections survive a tight
+   * budget, and the README documents it as a guarantee.
+   */
+  const entry = ({ priority = 1, retrievable = false, id = 'r', name = 'n', index = 0 }) => (
+    { result: { id }, section: { priority, name, index }, retrievable }
+  )
+  const decides = (key, first, second) => {
+    assert.ok(compareOptional(first, second) < 0, `${key} must decide this pair`)
+    assert.ok(compareOptional(second, first) > 0, `${key} must decide it in both directions`)
+  }
+
+  // Lower priority number first, against a retrievable flag, a result id and a
+  // section name that each say the opposite.
+  decides('priority',
+    entry({ priority: 1, retrievable: true, id: 'z', name: 'z' }),
+    entry({ priority: 9, retrievable: false, id: 'a', name: 'a' }))
+
+  // Unretrievable before retrievable, against an id and a name that disagree.
+  decides('retrievable',
+    entry({ priority: 1, retrievable: false, id: 'z', name: 'z' }),
+    entry({ priority: 1, retrievable: true, id: 'a', name: 'a' }))
+
+  // Result id by code unit -- "Z" before "a", which collation reverses --
+  // against a section name that disagrees.
+  decides('result id',
+    entry({ priority: 1, retrievable: true, id: 'Z', name: 'z' }),
+    entry({ priority: 1, retrievable: true, id: 'a', name: 'a' }))
+
+  // Section name by code unit, against the order the sections were declared in.
+  decides('section name',
+    entry({ priority: 1, retrievable: true, id: 'r', name: 'Z', index: 9 }),
+    entry({ priority: 1, retrievable: true, id: 'r', name: 'a', index: 0 }))
+
+  // Total, not merely documented: two sections alike in every key above fall
+  // back to the order they were declared in rather than comparing equal.
+  assert.ok(compareOptional(entry({ name: 'same', index: 0 }), entry({ name: 'same', index: 1 })) < 0)
+  assert.equal(compareOptional(entry({ name: 'same' }), entry({ name: 'same' })), 0)
+
   const one = result('r', 'succeeded', [])
   const usable = usableFrom(one, [
     { name: 'late', kind: 'evidence', text: 'x', priority: 9, retrieval: 'runs/late' },
     { name: 'early-retrievable', kind: 'evidence', text: 'x', priority: 1, retrieval: 'runs/early' },
     { name: 'early-lost', kind: 'evidence', text: 'x', priority: 1 },
   ])
-  const order = [...usable].sort(compareOptional).map((entry) => entry.section.name)
+  const order = [...usable].sort(compareOptional).map((entry_) => entry_.section.name)
   assert.deepEqual(order, ['early-lost', 'early-retrievable', 'late'])
 })
 
@@ -203,6 +249,53 @@ test('the invariant check refuses a summary that changed a result status', () =>
     () => assertSummaryInvariants(forged, [one], usable, retained, renderSummary(forged)),
     /changed status between the input and the summary/,
   )
+})
+
+test('the invariant check refuses a summary that lost a whole result', () => {
+  // A result that never reaches the summary is worse than a dropped section:
+  // the caller sees a verdict over calls it does not know were made. The two
+  // branches around this one are pinned; this one was not.
+  const first = { ...result('a', 'succeeded', []), index: 0 }
+  const second = { ...result('b', 'failed', []), index: 1 }
+  const usable = [
+    ...usableFrom(first, [{ name: 'id', kind: 'identifier', text: 'one' }]),
+    ...usableFrom(second, [{ name: 'why', kind: 'failure', text: 'two' }]),
+  ]
+  const retained = new Set(usable.map((entry) => entry.key))
+  const compressed = assemble([first, second], usable, retained, 10000)
+  const truncated = { ...compressed, results: compressed.results.slice(0, 1) }
+  assert.throws(
+    () => assertSummaryInvariants(truncated, [first, second], usable, retained, renderSummary(truncated)),
+    /carries 1 results and the document declared 2/,
+  )
+  // The complete one passes, so the check is not refusing every summary.
+  assertSummaryInvariants(compressed, [first, second], usable, retained, renderSummary(compressed))
+})
+
+test('the invariant check refuses a summary missing a section it says it retained', () => {
+  // The mirror of the omission branch: selection said it kept this section, and
+  // the rendered summary does not carry it. Nothing failed when this branch was
+  // disabled either.
+  const one = result('r', 'succeeded', [])
+  const usable = usableFrom(one, [
+    { name: 'id', kind: 'identifier', text: 'abc' },
+    { name: 'log', kind: 'evidence', text: filler(50), priority: 1, retrieval: 'runs/1/log.txt' },
+  ])
+  const retained = new Set(usable.map((entry) => entry.key))
+  const compressed = assemble([one], usable, retained, 10000)
+
+  const stripped = {
+    ...compressed,
+    results: [{
+      ...compressed.results[0],
+      sections: compressed.results[0].sections.filter((section) => section.name !== 'log'),
+    }],
+  }
+  assert.throws(
+    () => assertSummaryInvariants(stripped, [one], usable, retained, renderSummary(stripped)),
+    /section "log" was selected but is not in the summary/,
+  )
+  assertSummaryInvariants(compressed, [one], usable, retained, renderSummary(compressed))
 })
 
 test('two results sharing an id are matched by position, not collapsed', () => {

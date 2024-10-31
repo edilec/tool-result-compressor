@@ -88,6 +88,50 @@ test('findings sharing a file are ordered by pointer, then by rule id', async (t
   assert.notEqual(onFile[0].location.pointer, onFile[1].location.pointer)
 })
 
+/**
+ * The selection order, driven through the CLI rather than through the
+ * comparator.
+ *
+ * `compareOptional` decides which optional sections survive a budget that fits
+ * only some of them, so getting it wrong is not a cosmetic reordering: it is a
+ * different summary. The fixture is chosen so the documented first key
+ * (priority) and the last one (section name) disagree, which is what makes the
+ * assertion capable of failing.
+ */
+test('a tight budget keeps the lower-priority section, not the one whose name sorts first', async (t) => {
+  const root = await makeTree({
+    'results.json': resultsDocument([{
+      id: 'r',
+      tool: 'some.tool',
+      status: 'succeeded',
+      sections: [
+        section('oid', 'identifier', 'ord_1'),
+        { name: 'z-early', kind: 'evidence', priority: 0, text: filler(300), pointer: 'store/z.txt' },
+        { name: 'a-late', kind: 'evidence', priority: 9, text: filler(300), pointer: 'store/a.txt' },
+      ],
+    }]),
+  })
+  t.after(() => cleanup(root))
+
+  const { report, status } = runReport(root, ['--budget-chars', '600'])
+  assert.equal(status, 0)
+  const kept = report.compressed.results[0].sections.map((entry) => entry.name)
+  assert.deepEqual(kept, ['oid', 'z-early'])
+  assert.deepEqual(report.compressed.omitted.map((entry) => entry.name), ['a-late'])
+
+  // The fixture discriminates: by name alone "a-late" would have been offered
+  // the budget first, and it is the one that was dropped.
+  assert.ok('a-late' < 'z-early')
+
+  // Not a budget artefact: with room for both, both are kept.
+  const roomy = runReport(root, ['--budget-chars', '900'])
+  assert.deepEqual(roomy.report.compressed.omitted, [])
+  assert.deepEqual(
+    roomy.report.compressed.results[0].sections.map((entry) => entry.name),
+    ['oid', 'z-early', 'a-late'],
+  )
+})
+
 test('the omitted list inside the summary is ordered the same way', async (t) => {
   const root = await omittedFixture(t)
   const { report } = runReport(root, ['--budget-chars', '620'])
