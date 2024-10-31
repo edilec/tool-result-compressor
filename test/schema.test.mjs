@@ -12,6 +12,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { RESULT_STATUSES, SECTION_KINDS, isRequiredKind, validateResultsDocument } from '../src/results.mjs'
+import { validRetrievalPointer } from '../src/index.mjs'
 import { cleanup, findingFor, findingsFor, makeTree, resultsDocument, runReport, section } from './helpers.mjs'
 
 const good = () => ({
@@ -30,6 +31,63 @@ test('a well-formed document validates, and an absent status becomes unknown', (
   const second = validateResultsDocument(noStatus)
   assert.equal(second.document.results[0].status, 'unknown')
   assert.equal(second.document.results[0].statusDeclared, false)
+})
+
+test('a result or a section that is not a JSON object is named as one, not read through', () => {
+  /**
+   * `results: ["oops"]` and `sections: [null]` are documents people really
+   * write. Without these two checks the validator reads `.id` off a string and
+   * `.name` off null, and the reviewer is told a field is missing rather than
+   * that the whole entry is the wrong shape -- or, for null, the run dies with
+   * a TypeError. Nothing failed when either check was removed.
+   */
+  for (const [value, pointer] of [
+    ['oops', '/results/0'],
+    [[], '/results/0'],
+    [7, '/results/0'],
+  ]) {
+    const document = good()
+    document.results[0] = value
+    const validated = validateResultsDocument(document)
+    assert.equal(validated.ok, false)
+    const problem = validated.problems.find((entry) => entry.pointer === pointer)
+    assert.ok(problem !== undefined, `expected a problem at ${pointer}, got ${validated.problems.map((p) => p.pointer).join(', ')}`)
+    assert.match(problem.detail, /each result must be a JSON object/)
+  }
+
+  for (const value of ['oops', [], null, 7]) {
+    const document = good()
+    document.results[0].sections[0] = value
+    const validated = validateResultsDocument(document)
+    assert.equal(validated.ok, false)
+    const problem = validated.problems.find((entry) => entry.pointer === '/results/0/sections/0')
+    assert.ok(problem !== undefined, `expected a problem at /results/0/sections/0, got ${validated.problems.map((p) => p.pointer).join(', ')}`)
+    assert.match(problem.detail, /each section must be a JSON object/)
+  }
+
+  // Not a check that refuses every entry: the well-formed document still passes.
+  assert.equal(validateResultsDocument(good()).ok, true)
+})
+
+test('a retrieval pointer is a relative path inside a store, checked rule by rule', () => {
+  /**
+   * The pointer is repeated into the report as `location.file`, so it is
+   * governed by the report contract's rule that a location is never an absolute
+   * host path and never climbs out of the tree it names. Every rule is checked
+   * here because the guard is two lines and the leading-slash half is masked:
+   * "/etc/passwd" is already refused by the empty-first-segment rule, so the
+   * only case that defends the second line is the BACKSLASH one, and nothing
+   * exercised it.
+   */
+  for (const valid of ['store/a.txt', 'a', 'a/b/c/d.log', 'a'.repeat(200)]) {
+    assert.equal(validRetrievalPointer(valid), true, valid)
+  }
+  for (const invalid of [
+    '', '/etc/passwd', '/', 'store/../../etc/passwd', '../up', './here', 'store//a',
+    'store\\..\\..\\etc\\passwd', 'C:\\Windows\\system32', 'a'.repeat(201), undefined, null, 7, {},
+  ]) {
+    assert.equal(validRetrievalPointer(invalid), false, String(invalid))
+  }
 })
 
 test('an unknown key is rejected at every level, with a pointer to it', () => {
