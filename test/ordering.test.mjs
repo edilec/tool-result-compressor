@@ -132,6 +132,39 @@ test('a tight budget keeps the lower-priority section, not the one whose name so
   )
 })
 
+test('findings sharing a file are ordered by pointer, before anything else decides', async (t) => {
+  /**
+   * The pointer is the second key of the documented sort, and nothing made it
+   * decide anything: every fixture either put its findings on different files
+   * or gave them messages that happened to agree. Here two schema problems sit
+   * on one file with the same rule id, and their messages order them the other
+   * way round -- "kind must be..." sorts before "priority must be..." while the
+   * pointers put section 0 first.
+   */
+  const root = await makeTree({
+    'results.json': resultsDocument([{
+      id: 'a',
+      tool: 'some.tool',
+      status: 'succeeded',
+      sections: [
+        { name: 's0', kind: 'evidence', priority: -1, text: 'x' },
+        { name: 's1', kind: 'not-a-kind', priority: 0, text: 'y' },
+      ],
+    }]),
+  })
+  t.after(() => cleanup(root))
+
+  const { report, status } = runReport(root)
+  assert.equal(status, 2)
+  const schema = report.findings.filter((finding) => finding.ruleId === 'results-schema-invalid')
+  assert.deepEqual(
+    schema.map((finding) => finding.location.pointer),
+    ['/results/0/sections/0/priority', '/results/0/sections/1/kind'],
+  )
+  // The fixture discriminates: by message these two come back the other way.
+  assert.ok(schema[1].message < schema[0].message)
+})
+
 test('the omitted list inside the summary is ordered the same way', async (t) => {
   const root = await omittedFixture(t)
   const { report } = runReport(root, ['--budget-chars', '620'])
