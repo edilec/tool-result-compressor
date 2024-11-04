@@ -246,6 +246,59 @@ test('the budget is read once more before selection begins', async (t) => {
   assert.equal(report.summary.sections, 2, 'every result was inspected before the budget ran out')
 })
 
+test('the clock is read in the second selection pass too, not only the first', async (t) => {
+  /**
+   * Selection is two loops over the same optional list: the first retains what
+   * is free, the second pays for what fits. Both read the clock, and only the
+   * first was defended -- an expiry that arrives once pass 1 is finished was
+   * caught by nothing, and pass 2 went on paying out a budget the run no longer
+   * had.
+   *
+   * Seven readings for this fixture: the start, one for the single result being
+   * inspected, one before selection, two in pass 1 and two in pass 2. Letting
+   * five through puts the expiry on pass 2's first reading, which is the only
+   * reading that can catch it.
+   */
+  const root = await makeTree({
+    'results.json': resultsDocument([{
+      id: 'r',
+      tool: 't',
+      status: 'succeeded',
+      sections: [
+        section('oid', 'identifier', 'ord_1'),
+        { name: 'a', kind: 'evidence', priority: 1, text: filler(200), pointer: 'store/a.txt' },
+        { name: 'b', kind: 'evidence', priority: 2, text: filler(200), pointer: 'store/b.txt' },
+      ],
+    }]),
+  })
+  t.after(() => cleanup(root))
+
+  const expired = await compressToolResults({
+    results: join(root, 'results.json'),
+    budgetChars: 700,
+    limits: { timeoutMs: 5000 },
+    now: clockExpiringAfter(1_000_000, 5, 10_000),
+  })
+  assert.equal(expired.status, 'incomplete')
+  assert.equal(expired.compressed, null, 'the arrangement pass 2 had reached must not be offered')
+  assert.match(findingFor(expired, 'time-budget-exceeded').message, /during selection/)
+
+  // One more reading than the run needs and it finishes, so the fixture is not
+  // simply a clock that expires whatever the code does.
+  const finished = await compressToolResults({
+    results: join(root, 'results.json'),
+    budgetChars: 700,
+    limits: { timeoutMs: 5000 },
+    now: clockExpiringAfter(1_000_000, 7, 10_000),
+  })
+  assert.equal(finished.status, 'pass')
+  assert.deepEqual(
+    finished.compressed.results[0].sections.map((entry) => entry.name),
+    ['oid', 'a', 'b'],
+    'and pass 2 is what retained the two optional sections',
+  )
+})
+
 test('an unreadable document says so, and does not report "no results were declared"', async (t) => {
   const root = await makeTree({ 'elsewhere.json': '{}' })
   t.after(() => cleanup(root))
