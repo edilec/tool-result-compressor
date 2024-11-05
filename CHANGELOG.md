@@ -32,6 +32,18 @@ test that fails when the fix is removed.
 - The `assertSummaryInvariants` branch that requires every non-retained optional
   section to appear in the omitted footer is now pinned; so is `O_NOFOLLOW`,
   which moved beside the destination guard it backs up.
+- **Guarantees that were true and undefended are now pinned.** A second
+  adversarial pass neutralised every conditional in `src/` one at a time and
+  found thirteen the suite did not notice. Behaviour is unchanged; the tests
+  are not. Newly defended: the documented order optional sections are offered
+  the budget in -- priority, then unretrievable before retrievable, then result
+  id, then section name -- every key of which could be deleted with the suite
+  green, while the first of them decides which sections survive a tight budget;
+  the two remaining `assertSummaryInvariants` branches; the pointer key of the
+  finding sort; the shape checks for a result and a section that are not JSON
+  objects; the backslash half of the retrieval-pointer rule, the only case that
+  defends it; the clock reading in selection's second pass; and a destination
+  whose `lstat` fails for a reason other than ENOENT.
 
 ## 0.1.0
 
