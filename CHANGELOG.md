@@ -34,8 +34,9 @@ test that fails when the fix is removed.
   which moved beside the destination guard it backs up.
 - **Guarantees that were true and undefended are now pinned.** A second
   adversarial pass neutralised every conditional in `src/` one at a time and
-  found thirteen the suite did not notice. Behaviour is unchanged; the tests
-  are not. Newly defended: the documented order optional sections are offered
+  found eighteen the suite did not notice. Eleven now fail a test when they are
+  removed; the other seven are recorded below as unable to change any output.
+  Behaviour is unchanged throughout; the tests are not. Newly defended: the documented order optional sections are offered
   the budget in -- priority, then unretrievable before retrievable, then result
   id, then section name -- every key of which could be deleted with the suite
   green, while the first of them decides which sections survive a tight budget;
@@ -44,6 +45,18 @@ test that fails when the fix is removed.
   objects; the backslash half of the retrieval-pointer rule, the only case that
   defends it; the clock reading in selection's second pass; and a destination
   whose `lstat` fails for a reason other than ENOENT.
+- Seven conditionals are deliberately left unpinned, because no document this
+  tool accepts can distinguish them: the two that confine a destination to a
+  root, which this tool does not have and passes as `null`; the `Unknown rule
+  id` throw, which only an edit to this source can reach; the string fast path
+  in `renderable`, where `String(value)` returns the same string; the early
+  return in `smallestSufficientBudget`, which converges to the same number
+  either way (7500 documents and budgets, 0 differences); the skip of an
+  already-retained section in selection's second pass, where re-offering it is
+  a no-op; and the rule-id key of the finding sort, because over 1200 random
+  documents at four budgets the only pair of distinct rules that ever share a
+  file and a pointer is `failure-reason-missing` with `next-action-missing`,
+  whose messages always order the same way as their ids.
 
 ## 0.1.0
 
