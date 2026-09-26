@@ -1,0 +1,360 @@
+/**
+ * Unknown is never a pass, and never a success.
+ *
+ * The failure this tool exists to prevent is a summary an agent acts on that
+ * says a call succeeded when nobody established that it did. Every path that
+ * stops short of complete evidence is exercised here, and each is asserted on
+ * the report status, the process exit code, and what the rendered text actually
+ * says -- because any one of the three could be restored by an edit while the
+ * other two still tell the truth.
+ */
+
+import assert from 'node:assert/strict'
+import { join } from 'node:path'
+import test from 'node:test'
+
+import { compressToolResults } from '../src/index.mjs'
+import {
+  cleanup, clockExpiringAfter, fakeClock, filler, findingFor, findingsFor, makeTree, resultsDocument,
+  runReport, section,
+} from './helpers.mjs'
+
+test('an unknown outcome makes the run incomplete however many other results succeeded', async (t) => {
+  const root = await makeTree({
+    'results.json': resultsDocument([
+      { id: 'a', tool: 't', status: 'succeeded', sections: [section('id', 'identifier', '1')] },
+      { id: 'b', tool: 't', status: 'succeeded', sections: [section('id', 'identifier', '2')] },
+      { id: 'c', tool: 't', status: 'unknown', sections: [section('id', 'identifier', '3')] },
+    ]),
+  })
+  t.after(() => cleanup(root))
+
+  const { report, status } = runReport(root)
+  assert.equal(report.status, 'incomplete')
+  assert.equal(status, 2)
+  assert.equal(report.compressed.verdict, 'unknown')
+  assert.equal(report.compressed.text.includes('VERDICT succeeded'), false)
+})
+
+test('a section whose text was never saved is incomplete, not an empty section', async (t) => {
+  const root = await makeTree({
+    'results.json': resultsDocument([
+      {
+        id: 'a',
+        tool: 't',
+        status: 'succeeded',
+        sections: [
+          section('id', 'identifier', '1'),
+          { name: 'stdout', kind: 'evidence', priority: 1, pointer: 'runs/a/stdout.log' },
+        ],
+      },
+    ]),
+  })
+  t.after(() => cleanup(root))
+
+  const { report, status } = runReport(root)
+  assert.equal(report.status, 'incomplete')
+  assert.equal(status, 2)
+  const finding = findingFor(report, 'section-text-missing')
+  assert.match(finding.message, /carries no text, so its content was never obtained/)
+  assert.equal(finding.location.file, 'runs/a/stdout.log')
+  // It is not quietly reported as an omission, which would imply it was there to omit.
+  assert.deepEqual(findingsFor(report, 'section-omitted'), [])
+  assert.equal(report.compressed.text.includes('stdout'), false)
+})
+
+test('a required section that renders to nothing is a missing reason, not an empty one', async (t) => {
+  // The guard that catches an absent text tests the text as it was SAVED. What
+  // reaches the summary is the text as it will be READ: whitespace collapses
+  // and control characters are stripped. A failure reason made only of those
+  // used to render as "failure why: " with nothing after it, status fail, exit
+  // 1, and no finding anywhere saying the reason had never been obtained.
+  const controls = `${String.fromCharCode(0x85)}${String.fromCharCode(0x202e)}${String.fromCharCode(0x200e)}`
+  const root = await makeTree({
+    'results.json': resultsDocument([
+      {
+        id: 'c1',
+        tool: 't',
+        status: 'failed',
+        sections: [
+          section('why', 'failure', controls),
+          section('oid', 'identifier', '   '),
+          section('do', 'next-action', 'retry'),
+        ],
+      },
+    ]),
+  })
+  t.after(() => cleanup(root))
+
+  const { report, status } = runReport(root)
+  assert.equal(report.status, 'incomplete')
+  assert.equal(status, 2)
+  const missing = findingsFor(report, 'section-text-missing')
+  assert.equal(missing.length, 2, 'the failure reason and the identifier are both empty')
+  for (const finding of missing) assert.match(finding.message, /nothing but whitespace or control characters/)
+
+  // And neither is rendered as a section that is present but says nothing.
+  assert.equal(report.compressed.text.includes('failure why:'), false)
+  assert.equal(report.compressed.text.includes('identifier oid:'), false)
+  assert.ok(report.compressed.text.includes('next-action do: retry'))
+})
+
+test('a missing failure reason says the reason was never saved, not that none was supplied', async (t) => {
+  const root = await makeTree({
+    'results.json': resultsDocument([
+      { id: 'a', tool: 't', status: 'failed', sections: [section('id', 'identifier', '1')] },
+    ]),
+  })
+  t.after(() => cleanup(root))
+
+  const { report, status } = runReport(root)
+  assert.equal(status, 2)
+  assert.equal(report.status, 'incomplete')
+  assert.match(findingFor(report, 'failure-reason-missing').message, /was never saved and cannot survive compression/)
+})
+
+test('an expired clock stops selection and offers no summary at all', async (t) => {
+  const root = await makeTree({
+    'results.json': resultsDocument([
+      {
+        id: 'a',
+        tool: 't',
+        status: 'succeeded',
+        sections: [
+          section('id', 'identifier', 'abc'),
+          { ...section('body', 'evidence', filler(200), { pointer: 'runs/a/body' }), priority: 1 },
+        ],
+      },
+    ]),
+  })
+  t.after(() => cleanup(root))
+
+  // The clock is injected, never read. Three readings carry the run as far as
+  // selection -- the one that starts the budget, one for the single result
+  // being inspected, and one immediately before selection -- and the fourth,
+  // inside selection, reports that ten seconds have already gone by. Expiring
+  // any earlier would exercise a different phase than this test is named for.
+  const expired = await compressToolResults({
+    results: join(root, 'results.json'),
+    budgetChars: 4000,
+    limits: { timeoutMs: 5000 },
+    now: clockExpiringAfter(1_000_000, 3, 10_000),
+  })
+  assert.equal(expired.status, 'incomplete')
+  assert.equal(expired.compressed, null, 'the arrangement selection had reached must not be offered')
+  assert.match(findingFor(expired, 'time-budget-exceeded').message, /during selection/)
+
+  // The same document with a clock that does not jump produces a summary.
+  const finished = await compressToolResults({
+    results: join(root, 'results.json'),
+    budgetChars: 4000,
+    limits: { timeoutMs: 5000 },
+    now: fakeClock(1_000_000, 0),
+  })
+  assert.equal(finished.status, 'pass')
+  assert.notEqual(finished.compressed, null)
+})
+
+/**
+ * The phase the clock used to be blind to.
+ *
+ * Every reading of the selection callback happens inside a loop over the
+ * OPTIONAL sections. A document whose sections are all of required kinds --
+ * a failure reason, an identifier, a next action, which is exactly what a
+ * minimal saved result carries -- leaves that list empty, so neither loop runs
+ * and the callback is never called. A run given no time at all reached the end
+ * of that document reporting `pass`, exit 0 and not one finding: the budget
+ * expired and the verdict was green.
+ */
+const REQUIRED_ONLY = [
+  { id: 'a', tool: 't', status: 'succeeded', sections: [section('oid', 'identifier', 'ord_1')] },
+]
+
+test('an expired budget is not a pass, even with nothing optional to select', async (t) => {
+  const root = await makeTree({ 'results.json': resultsDocument(REQUIRED_ONLY) })
+  t.after(() => cleanup(root))
+
+  const expired = runReport(root, ['--timeout-ms', '0'])
+  assert.equal(expired.report.status, 'incomplete')
+  assert.equal(expired.status, 2)
+  assert.equal(expired.report.compressed, null, 'a run that had no time never established what fits')
+  assert.match(findingFor(expired.report, 'time-budget-exceeded').message, /0ms time budget expired/)
+
+  // Not a guard that refuses everything: the same document with a real budget
+  // is compressed and passes.
+  const finished = runReport(root)
+  assert.equal(finished.report.status, 'pass')
+  assert.equal(finished.status, 0)
+  assert.deepEqual(finished.report.findings, [])
+  assert.match(finished.report.compressed.text, /identifier oid: ord_1/)
+})
+
+test('the time budget stops the inspection of saved results, not only selection', async (t) => {
+  const root = await makeTree({
+    'results.json': resultsDocument(
+      ['a', 'b', 'c', 'd'].map((id) => (
+        { id, tool: 't', status: 'succeeded', sections: [section('oid', 'identifier', id)] }
+      )),
+    ),
+  })
+  t.after(() => cleanup(root))
+
+  // A millisecond per reading: the first starts the budget, then one reading
+  // per result. With three milliseconds the third result is where it runs out.
+  let calls = 0
+  const stepping = () => { calls += 1; return calls - 1 }
+  const report = await compressToolResults({
+    results: join(root, 'results.json'), budgetChars: 4000, limits: { timeoutMs: 3 }, now: stepping,
+  })
+
+  assert.equal(report.status, 'incomplete')
+  assert.equal(report.compressed, null)
+  assert.match(findingFor(report, 'time-budget-exceeded').message, /while the saved results were being inspected/)
+  /**
+   * Stopped where the budget ran out, not after inspecting all four: the phase
+   * is bounded rather than merely checked once it is over. Without the reading
+   * inside this loop the run inspects every result and reports four.
+   */
+  assert.equal(report.summary.sections, 2)
+  assert.equal(report.summary.results, 4)
+})
+
+test('the budget is read once more before selection begins', async (t) => {
+  const root = await makeTree({
+    'results.json': resultsDocument(
+      ['a', 'b'].map((id) => (
+        { id, tool: 't', status: 'succeeded', sections: [section('oid', 'identifier', id)] }
+      )),
+    ),
+  })
+  t.after(() => cleanup(root))
+
+  // Three readings inside the budget -- the start and one per result -- and the
+  // fourth, immediately before selection, past it. Selection itself reads the
+  // clock only while it has optional sections to weigh, and this document has
+  // none, so nothing later would ever notice.
+  const report = await compressToolResults({
+    results: join(root, 'results.json'),
+    budgetChars: 4000,
+    limits: { timeoutMs: 5000 },
+    now: clockExpiringAfter(1_000_000, 3, 10_000),
+  })
+
+  assert.equal(report.status, 'incomplete')
+  assert.equal(report.compressed, null)
+  assert.match(findingFor(report, 'time-budget-exceeded').message, /before selection began/)
+  assert.equal(report.summary.sections, 2, 'every result was inspected before the budget ran out')
+})
+
+test('the clock is read in the second selection pass too, not only the first', async (t) => {
+  /**
+   * Selection is two loops over the same optional list: the first retains what
+   * is free, the second pays for what fits. Both read the clock, and only the
+   * first was defended -- an expiry that arrives once pass 1 is finished was
+   * caught by nothing, and pass 2 went on paying out a budget the run no longer
+   * had.
+   *
+   * Seven readings for this fixture: the start, one for the single result being
+   * inspected, one before selection, two in pass 1 and two in pass 2. Letting
+   * five through puts the expiry on pass 2's first reading, which is the only
+   * reading that can catch it.
+   */
+  const root = await makeTree({
+    'results.json': resultsDocument([{
+      id: 'r',
+      tool: 't',
+      status: 'succeeded',
+      sections: [
+        section('oid', 'identifier', 'ord_1'),
+        { name: 'a', kind: 'evidence', priority: 1, text: filler(200), pointer: 'store/a.txt' },
+        { name: 'b', kind: 'evidence', priority: 2, text: filler(200), pointer: 'store/b.txt' },
+      ],
+    }]),
+  })
+  t.after(() => cleanup(root))
+
+  const expired = await compressToolResults({
+    results: join(root, 'results.json'),
+    budgetChars: 700,
+    limits: { timeoutMs: 5000 },
+    now: clockExpiringAfter(1_000_000, 5, 10_000),
+  })
+  assert.equal(expired.status, 'incomplete')
+  assert.equal(expired.compressed, null, 'the arrangement pass 2 had reached must not be offered')
+  assert.match(findingFor(expired, 'time-budget-exceeded').message, /during selection/)
+
+  // One more reading than the run needs and it finishes, so the fixture is not
+  // simply a clock that expires whatever the code does.
+  const finished = await compressToolResults({
+    results: join(root, 'results.json'),
+    budgetChars: 700,
+    limits: { timeoutMs: 5000 },
+    now: clockExpiringAfter(1_000_000, 7, 10_000),
+  })
+  assert.equal(finished.status, 'pass')
+  assert.deepEqual(
+    finished.compressed.results[0].sections.map((entry) => entry.name),
+    ['oid', 'a', 'b'],
+    'and pass 2 is what retained the two optional sections',
+  )
+})
+
+test('an unreadable document says so, and does not report "no results were declared"', async (t) => {
+  const root = await makeTree({ 'elsewhere.json': '{}' })
+  t.after(() => cleanup(root))
+
+  const { report, status } = runReport(root)
+  assert.equal(report.status, 'incomplete')
+  assert.equal(status, 2)
+  assert.deepEqual(findingsFor(report, 'no-results-declared'), [])
+  assert.match(findingFor(report, 'results-unreadable').message, /could not be inspected \(ENOENT\)/)
+  assert.equal(report.compressed, null)
+})
+
+test('a document declaring no results is a failure, not a green summary of nothing', async (t) => {
+  const root = await makeTree({ 'results.json': resultsDocument([]) })
+  t.after(() => cleanup(root))
+
+  const { report, status } = runReport(root)
+  assert.equal(report.status, 'fail')
+  assert.equal(status, 1)
+  assert.equal(report.summary.checked, 0)
+  assert.equal(report.compressed, null)
+  assert.equal(findingFor(report, 'no-results-declared').severity, 'error')
+})
+
+test('an incomplete report is still valid JSON on stdout, per the exit-2 contract', async (t) => {
+  const root = await makeTree({ 'results.json': 'not json at all' })
+  t.after(() => cleanup(root))
+
+  const { report, status, stdout } = runReport(root)
+  assert.equal(status, 2)
+  assert.notEqual(stdout, '')
+  assert.equal(report.tool, 'tool-result-compressor')
+  assert.equal(report.status, 'incomplete')
+})
+
+test('a summary that cannot hold the required material is not produced at all', async (t) => {
+  const root = await makeTree({
+    'results.json': resultsDocument([
+      {
+        id: 'a',
+        tool: 't',
+        status: 'failed',
+        sections: [
+          section('why', 'failure', filler(500)),
+          section('do', 'next-action', filler(500)),
+        ],
+      },
+    ]),
+  })
+  t.after(() => cleanup(root))
+
+  const { report, status } = runReport(root, ['--budget-chars', '200'])
+  assert.equal(report.status, 'fail')
+  assert.equal(status, 1)
+  assert.equal(report.compressed, null)
+  assert.equal(report.summary.usedChars, null)
+  assert.equal(report.summary.retained, 0)
+  assert.match(findingFor(report, 'budget-too-small-for-required').message, /no summary was produced/)
+})

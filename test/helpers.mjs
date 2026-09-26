@@ -1,0 +1,102 @@
+/**
+ * Fixture helpers shared by the suite.
+ *
+ * Every fixture lives in a fresh temporary directory: a test that writes into
+ * the repository leaves the next run a different subject, and this tool's whole
+ * claim is that the same subject produces the same bytes.
+ */
+
+import { spawnSync } from 'node:child_process'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+export const BIN = fileURLToPath(new URL('../bin/tool-result-compressor.mjs', import.meta.url))
+
+/** Create a temporary tree. Values are strings or byte arrays, written as-is. */
+export async function makeTree(files) {
+  const root = await mkdtemp(join(tmpdir(), 'tool-result-compressor-'))
+  for (const name of Object.keys(files).sort()) {
+    const path = join(root, name)
+    await mkdir(dirname(path), { recursive: true })
+    const content = files[name]
+    await writeFile(path, content instanceof Uint8Array ? content : String(content))
+  }
+  return root
+}
+
+export async function cleanup(root) {
+  await rm(root, { recursive: true, force: true })
+}
+
+/** A results document, written the way a caller would. */
+export function resultsDocument(results, extra = {}) {
+  return JSON.stringify({ schemaVersion: '1', results, ...extra }, null, 2)
+}
+
+/** One section, with the fields a caller usually supplies. */
+export function section(name, kind, text, extra = {}) {
+  return { name, kind, priority: 0, text, ...extra }
+}
+
+/** Run the real CLI and return its streams and exit status. */
+export function runCli(args) {
+  const result = spawnSync(process.execPath, [BIN, ...args], { encoding: 'utf8' })
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+}
+
+/**
+ * Run the real CLI over a fixture and parse the JSON report.
+ *
+ * Deliberately through the process boundary rather than the library: an exit
+ * code is the one assertion nobody can satisfy by editing a table, and the JSON
+ * on stdout is what a consumer actually receives.
+ */
+export function runReport(root, args = []) {
+  const withBudget = args.includes('--budget-chars') ? args : ['--budget-chars', '4000', ...args]
+  const result = runCli(['--results', join(root, 'results.json'), '--json', ...withBudget])
+  return { ...result, report: result.stdout === '' ? null : JSON.parse(result.stdout) }
+}
+
+export function findingsFor(report, ruleId) {
+  return report.findings.filter((finding) => finding.ruleId === ruleId)
+}
+
+export function findingFor(report, ruleId) {
+  const matches = findingsFor(report, ruleId)
+  if (matches.length === 0) {
+    throw new Error(`no finding for rule "${ruleId}"; got ${report.findings.map((f) => f.ruleId).join(', ') || '(none)'}`)
+  }
+  return matches[0]
+}
+
+/** A clock that reports `jump` milliseconds elapsed on every call after the first. */
+export function fakeClock(start, jump) {
+  let first = true
+  return () => {
+    if (first) { first = false; return start }
+    return start + jump
+  }
+}
+
+/**
+ * A clock that stays inside the budget for `readings` calls and then jumps past
+ * it.
+ *
+ * The run reads the clock in three places -- once to start the budget, once per
+ * saved result while they are inspected, and once more before selection begins
+ * -- so a test that means to expire inside a particular phase has to let the
+ * earlier ones finish. `fakeClock` expires at the first reading after the
+ * start, which is now the inspection of the first result.
+ */
+export function clockExpiringAfter(start, readings, jump) {
+  let calls = 0
+  return () => {
+    calls += 1
+    return calls <= readings ? start : start + jump
+  }
+}
+
+/** Filler text of an exact length, so a budget can be aimed at a known edge. */
+export const filler = (length) => 'x'.repeat(length)
